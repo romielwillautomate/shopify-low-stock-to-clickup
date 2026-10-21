@@ -1,0 +1,1889 @@
+{
+  "name": "Shopify Low Stock to ClickUp Reorder Tasks",
+  "nodes": [
+    {
+      "id": "ce2c8b1d-6ff8-59a0-9403-13efe422ae03",
+      "name": "Note: Start",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -80,
+        -180
+      ],
+      "parameters": {
+        "content": "## 1. Start\nRuns every day on the schedule in `STOCK_CHECK_CRON`.\n\n**Run Now:** POST to the webhook with the `X-Run-Now-Secret` header. A wrong or missing secret gets a 401 and nothing runs.",
+        "width": 640,
+        "height": 980,
+        "color": 7
+      }
+    },
+    {
+      "id": "1574b786-7f9f-591b-bf55-3cbf86aeec65",
+      "name": "Note: Settings",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        580,
+        -180
+      ],
+      "parameters": {
+        "content": "## 2. Settings\nReads every setting from environment variables and checks them before any API is called.\n\nRun Now gets its answer here: 202 when the check starts, 500 with the list of problems when a setting is wrong. In a scheduled run these reply nodes do nothing.",
+        "width": 960,
+        "height": 980,
+        "color": 7
+      }
+    },
+    {
+      "id": "0ac93119-b7e6-5f03-a896-f82dd91a0868",
+      "name": "Note: Open Tasks",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1560,
+        -180
+      ],
+      "parameters": {
+        "content": "## 3. Open reorder tasks\nReads every open task in the ClickUp reorder list, page by page, and finds the SKU of each one.\n\nA 429 waits until ClickUp says the limit resets, then reads again.",
+        "width": 700,
+        "height": 980,
+        "color": 6
+      }
+    },
+    {
+      "id": "17a15c9f-9f24-532e-bef0-fd3440a86900",
+      "name": "Note: Shopify",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2300,
+        -180
+      ],
+      "parameters": {
+        "content": "## 4. Shopify stock scan\nGets a fresh access token if you use client credentials, then pages through every product variant with a cursor.\n\nWhen Shopify throttles the scan, it waits for the query budget to refill and asks for the same page again.",
+        "width": 1620,
+        "height": 980,
+        "color": 4
+      }
+    },
+    {
+      "id": "e0db8cc1-f72e-5ac5-83ac-3a7d20fec23c",
+      "name": "Note: Plan",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        3940,
+        -180
+      ],
+      "parameters": {
+        "content": "## 5. Plan\nCompares stock with the open tasks. Low with no task: create one. Lower than last time: comment. Back in stock: close it.",
+        "width": 480,
+        "height": 980,
+        "color": 5
+      }
+    },
+    {
+      "id": "ed494e47-7257-5e7a-9118-fd8ce32c4715",
+      "name": "Note: ClickUp Changes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        4440,
+        -180
+      ],
+      "parameters": {
+        "content": "## 6. ClickUp changes\nOne change at a time, so a retry never repeats a change that already worked.\n\nRight before a new task is created, ClickUp is asked again whether an open task with that SKU exists, so a second run or a person cannot cause a duplicate.\n\nA 429 from ClickUp waits `CLICKUP_RATE_LIMIT_WAIT_SECONDS` and tries the same step again.",
+        "width": 1600,
+        "height": 1500,
+        "color": 6
+      }
+    },
+    {
+      "id": "6c8a002e-60f6-5b93-8c3e-daae95ce222a",
+      "name": "Note: Digest",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        6060,
+        -180
+      ],
+      "parameters": {
+        "content": "## 7. Slack digest\nOne message per run: new tasks, updates, closed tasks, items still low and anything that needs a look.\n\nIf a ClickUp change failed, the run ends as failed after the digest, so the error workflow alerts you.",
+        "width": 1180,
+        "height": 980,
+        "color": 3
+      }
+    },
+    {
+      "id": "19f10c00-70f5-57a3-84ea-27127c264ec0",
+      "name": "Daily Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        100
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "={{ $env.STOCK_CHECK_CRON || '0 7 * * *' }}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "19b17b03-d5fc-5359-8dbc-fd7ef9e5f2c0",
+      "name": "Run Now",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        380
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "shopify-low-stock-run-now",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "d116ae69-d2c9-589c-a2fc-ea8e6d7df49f"
+    },
+    {
+      "id": "dc4bb602-81e0-527f-b1f5-c2af3c8f2cc0",
+      "name": "Run Now Allowed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        220,
+        380
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "3bf8f4b4-4422-596c-bb25-3706b80d30e0",
+              "leftValue": "={{ $env.RUN_NOW_SECRET }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "d69b3b85-ab64-51be-9c89-638a03feae45",
+              "leftValue": "={{ $json.headers['x-run-now-secret'] }}",
+              "rightValue": "={{ $env.RUN_NOW_SECRET }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "fbefd80d-288a-5ca2-89f7-3a21d6dedaf0",
+      "name": "Respond: Unauthorized",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        440,
+        560
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\"error\": \"unauthorized\"}",
+        "options": {
+          "responseCode": 401
+        }
+      }
+    },
+    {
+      "id": "d9bcc37c-d635-56cc-ae42-bbdf5ad0969c",
+      "name": "Respond: Started",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1080,
+        240
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\"status\": \"started\", \"message\": \"The stock check is running. The results go to the Slack digest when it finishes.\"}",
+        "options": {
+          "responseCode": 202
+        }
+      }
+    },
+    {
+      "id": "dd1da26c-43cc-57f1-a387-de7c61ff3acf",
+      "name": "Respond: Bad Settings",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1080,
+        460
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: 'not started', problems: $json.problems }) }}",
+        "options": {
+          "responseCode": 500
+        }
+      }
+    },
+    {
+      "id": "1c32fe06-5837-5ec3-b190-296775dbc95f",
+      "name": "Load Settings",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        640,
+        240
+      ],
+      "parameters": {
+        "jsCode": "// Reads every setting from environment variables and checks them before any API is called.\n// Secrets are not copied into the output: the HTTP nodes read the tokens from $env themselves.\nconst raw = {\n  SHOPIFY_STORE_DOMAIN: $env.SHOPIFY_STORE_DOMAIN,\n  SHOPIFY_ACCESS_TOKEN: $env.SHOPIFY_ACCESS_TOKEN,\n  SHOPIFY_CLIENT_ID: $env.SHOPIFY_CLIENT_ID,\n  SHOPIFY_CLIENT_SECRET: $env.SHOPIFY_CLIENT_SECRET,\n  SHOPIFY_API_VERSION: $env.SHOPIFY_API_VERSION,\n  SHOPIFY_PAGE_SIZE: $env.SHOPIFY_PAGE_SIZE,\n  SHOPIFY_VARIANT_QUERY: $env.SHOPIFY_VARIANT_QUERY,\n  REORDER_POINT_METAFIELD: $env.REORDER_POINT_METAFIELD,\n  DEFAULT_REORDER_POINT: $env.DEFAULT_REORDER_POINT,\n  DEFAULT_LEAD_TIME_DAYS: $env.DEFAULT_LEAD_TIME_DAYS,\n  SUPPLIERS_JSON: $env.SUPPLIERS_JSON,\n  CLICKUP_API_TOKEN: $env.CLICKUP_API_TOKEN,\n  CLICKUP_LIST_ID: $env.CLICKUP_LIST_ID,\n  CLICKUP_SKU_FIELD_ID: $env.CLICKUP_SKU_FIELD_ID,\n  CLICKUP_ASSIGNEE_IDS: $env.CLICKUP_ASSIGNEE_IDS,\n  CLICKUP_TAG: $env.CLICKUP_TAG,\n  CLICKUP_CLOSED_STATUS: $env.CLICKUP_CLOSED_STATUS,\n  CLICKUP_RATE_LIMIT_WAIT_SECONDS: $env.CLICKUP_RATE_LIMIT_WAIT_SECONDS,\n};\nconst get = (name) => (raw[name] === undefined || raw[name] === null ? '' : String(raw[name]).trim());\nconst problems = [];\nconst whole = (name, fallback, min, max) => {\n  const v = get(name);\n  if (v === '') return fallback;\n  if (!/^\\d+$/.test(v) || Number(v) < min || Number(v) > max) {\n    problems.push(`${name} must be a whole number from ${min} to ${max}.`);\n    return fallback;\n  }\n  return Number(v);\n};\n\n// Shopify\nconst domain = get('SHOPIFY_STORE_DOMAIN').toLowerCase().replace(/^https?:\\/\\//, '').replace(/\\/.*$/, '');\nif (!domain) problems.push('SHOPIFY_STORE_DOMAIN is missing (for example your-store.myshopify.com).');\nelse if (!/^[a-z0-9][a-z0-9-]*\\.myshopify\\.com$/.test(domain)) problems.push('SHOPIFY_STORE_DOMAIN must be the store\\'s myshopify.com address, not a custom domain.');\nconst clientId = get('SHOPIFY_CLIENT_ID');\nconst clientSecret = get('SHOPIFY_CLIENT_SECRET');\nif (Boolean(clientId) !== Boolean(clientSecret)) problems.push('Set both SHOPIFY_CLIENT_ID and SHOPIFY_CLIENT_SECRET, or neither.');\nif (!get('SHOPIFY_ACCESS_TOKEN') && !(clientId && clientSecret)) problems.push('Set SHOPIFY_ACCESS_TOKEN, or SHOPIFY_CLIENT_ID and SHOPIFY_CLIENT_SECRET.');\nconst apiVersion = get('SHOPIFY_API_VERSION') || '2026-10';\nif (!/^\\d{4}-(01|04|07|10)$/.test(apiVersion)) problems.push('SHOPIFY_API_VERSION must look like 2026-10.');\nconst metafield = get('REORDER_POINT_METAFIELD') || 'custom.reorder_point';\nconst mf = /^([A-Za-z0-9_$:-]+)\\.([A-Za-z0-9_-]+)$/.exec(metafield);\nif (!mf) problems.push('REORDER_POINT_METAFIELD must be namespace.key, for example custom.reorder_point.');\n\n// Suppliers: keys are an exact SKU, a SKU prefix ending in *, a Shopify vendor name, or \"default\"\nlet suppliers = {};\nif (get('SUPPLIERS_JSON')) {\n  try {\n    const parsed = JSON.parse(get('SUPPLIERS_JSON'));\n    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('it must be a JSON object');\n    for (const [key, s] of Object.entries(parsed)) {\n      if (!s || typeof s !== 'object' || Array.isArray(s)) problems.push(`SUPPLIERS_JSON entry \"${key}\" must be an object.`);\n      else if (s.leadTimeDays !== undefined && !(Number.isInteger(s.leadTimeDays) && s.leadTimeDays >= 0 && s.leadTimeDays <= 365)) problems.push(`SUPPLIERS_JSON entry \"${key}\" has a leadTimeDays that is not a whole number from 0 to 365.`);\n    }\n    suppliers = parsed;\n  } catch (e) {\n    problems.push(`SUPPLIERS_JSON is not valid JSON (${e.message}).`);\n  }\n}\n\n// ClickUp\nif (!get('CLICKUP_API_TOKEN')) problems.push('CLICKUP_API_TOKEN is missing.');\nconst listId = get('CLICKUP_LIST_ID');\nif (!/^\\d+$/.test(listId)) problems.push('CLICKUP_LIST_ID is missing or not a number. It is the number after /li/ in the list URL.');\nconst assigneeText = get('CLICKUP_ASSIGNEE_IDS');\nconst assignees = assigneeText ? assigneeText.split(',').map((s) => s.trim()).filter(Boolean) : [];\nif (assignees.some((a) => !/^\\d+$/.test(a))) problems.push('CLICKUP_ASSIGNEE_IDS must be ClickUp user IDs (numbers), separated by commas.');\nconst skuFieldId = get('CLICKUP_SKU_FIELD_ID');\nif (skuFieldId && !/^[0-9a-f-]{36}$/i.test(skuFieldId)) problems.push('CLICKUP_SKU_FIELD_ID must be a custom field ID like 0a1b2c3d-1234-5678-9abc-0123456789ab.');\nconst tag = get('CLICKUP_TAG') || 'low-stock';\n\nreturn [{\n  json: {\n    ok: problems.length === 0,\n    problems,\n    trigger: $('Daily Schedule').isExecuted ? 'scheduled' : 'run now',\n    startedAt: new Date().toISOString(),\n    shop: {\n      domain,\n      // The store URL is built in this one place, so the tests can point it at a mock.\n      baseUrl: 'https://{shop}'.replace('{shop}', domain),\n      apiVersion,\n      useClientCredentials: Boolean(clientId && clientSecret),\n      pageSize: whole('SHOPIFY_PAGE_SIZE', 100, 1, 200),\n      // Written like Shopify's own example for this filter (product_status:ACTIVE,DRAFT)\n      variantQuery: get('SHOPIFY_VARIANT_QUERY') || 'product_status:ACTIVE',\n      metafieldNamespace: mf ? mf[1] : 'custom',\n      metafieldKey: mf ? mf[2] : 'reorder_point',\n    },\n    defaults: {\n      reorderPoint: whole('DEFAULT_REORDER_POINT', 5, 0, 1000000),\n      leadTimeDays: whole('DEFAULT_LEAD_TIME_DAYS', 14, 0, 365),\n    },\n    suppliers,\n    clickup: {\n      listId,\n      skuFieldId,\n      assignees: assignees.map(Number),\n      tag: tag.toLowerCase() === 'none' ? '' : tag,\n      closedStatus: get('CLICKUP_CLOSED_STATUS') || 'complete',\n      rateLimitWaitSeconds: whole('CLICKUP_RATE_LIMIT_WAIT_SECONDS', 60, 1, 600),\n      rateLimitRetries: 3,\n    },\n  },\n}];\n"
+      }
+    },
+    {
+      "id": "87aeb573-4f7d-522b-bac6-d8545f3dffcd",
+      "name": "Settings OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        860,
+        240
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "c33a4788-19cc-58c1-bf5d-2a2ec5ac4669",
+              "leftValue": "={{ $json.ok }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "4db73ee0-0ef6-5e4b-80ba-76d41f60d24e",
+      "name": "Stop: Bad Settings",
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [
+        1300,
+        460
+      ],
+      "parameters": {
+        "errorMessage": "={{ 'The stock check did not start because of a settings problem: ' + $('Load Settings').first().json.problems.join(' ') }}"
+      }
+    },
+    {
+      "id": "2af5282c-1c59-531b-ab62-83c26ccb6567",
+      "name": "ClickUp: Get Open Tasks",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1620,
+        240
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ 'https://api.clickup.com/api/v2/list/' + $('Load Settings').first().json.clickup.listId + '/task' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ $env.CLICKUP_API_TOKEN }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "page",
+              "value": "0"
+            },
+            {
+              "name": "archived",
+              "value": "false"
+            },
+            {
+              "name": "include_closed",
+              "value": "false"
+            },
+            {
+              "name": "subtasks",
+              "value": "true"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000,
+          "pagination": {
+            "pagination": {
+              "parameters": {
+                "parameters": [
+                  {
+                    "type": "qs",
+                    "name": "page",
+                    "value": "={{ $pageCount }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ $response.body.last_page === true || !($response.body.tasks || []).length }}"
+            }
+          }
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "0a76b845-17cc-5c95-b67b-2a5eda4ae44b",
+      "name": "Read Rate Limited?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1840,
+        460
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "b62eb1e1-fccf-58ed-94b6-ccaa7ed9446c",
+              "leftValue": "={{ ($json.error ? Number($json.error.status || $json.error.statusCode || ($json.error.response && $json.error.response.status) || 0) : 0) }}",
+              "rightValue": 429,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "7f98c934-e2b0-55ed-ab49-a382c6b3aedf",
+              "leftValue": "={{ $runIndex }}",
+              "rightValue": "={{ $('Load Settings').first().json.clickup.rateLimitRetries }}",
+              "operator": {
+                "type": "number",
+                "operation": "lt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "ce0ec788-d040-5fe2-bef7-20e064718044",
+      "name": "Wait: ClickUp Read Limit",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        2080,
+        440
+      ],
+      "parameters": {
+        "amount": "={{ (() => { const h = ($json.error && $json.error.response && $json.error.response.headers) || {}; const reset = Number(h['x-ratelimit-reset']); if (!(reset > 0)) return $('Load Settings').first().json.clickup.rateLimitWaitSeconds; return Math.min(120, Math.max(1, Math.ceil(reset - Date.now() / 1000) + 1)); })() }}",
+        "unit": "seconds"
+      },
+      "webhookId": "d967771a-ad3f-51e3-8ec5-42960c6271d4"
+    },
+    {
+      "id": "51a8fe8c-9438-5f09-8a84-c84918d2bf29",
+      "name": "Stop: ClickUp Failed",
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [
+        2080,
+        640
+      ],
+      "parameters": {
+        "errorMessage": "={{ 'Could not read the open tasks in ClickUp list ' + $('Load Settings').first().json.clickup.listId + ' (' + (($json.error ? Number($json.error.status || $json.error.statusCode || ($json.error.response && $json.error.response.status) || 0) : 0) ? 'HTTP ' + ($json.error ? Number($json.error.status || $json.error.statusCode || ($json.error.response && $json.error.response.status) || 0) : 0) + ', ' : '') + (($json.error ? Number($json.error.status || $json.error.statusCode || ($json.error.response && $json.error.response.status) || 0) : 0) === 429 ? 'the rate limit was still reached after ' + $('Load Settings').first().json.clickup.rateLimitRetries + ' waits' : (() => { const e = $json.error || {}; let raw = String(e.message || (typeof e.error === 'string' ? e.error : '') || ''); const m = /^\\d{3} - ([\\s\\S]*)$/.exec(raw); if (m) raw = m[1]; let j = null; try { j = JSON.parse(raw); if (typeof j === 'string') j = JSON.parse(j); } catch (x) { try { j = JSON.parse(raw.replace(/^\"|\"$/g, '')); } catch (y) { j = null; } } const d = j && j.err ? j.err + (j.ECODE ? ' (' + j.ECODE + ')' : '') : raw; return String(d).slice(0, 200) || 'no details'; })()) + '). Nothing was changed.' }}"
+      }
+    },
+    {
+      "id": "2113cc36-3b52-55f7-99ae-af5888cd72d3",
+      "name": "Index Open Tasks",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2080,
+        240
+      ],
+      "parameters": {
+        "jsCode": "// Collects the open tasks in the reorder list and finds the SKU of each one:\n// the SKU custom field when it is set, otherwise the \"Reorder SKU: ...\" task name.\nconst settings = $('Load Settings').first().json;\nconst fieldId = settings.clickup.skuFieldId;\nconst pages = $input.all();\nconst bySku = {};\nlet openCount = 0;\nlet otherTasks = 0;\nfor (const page of pages) {\n  for (const t of page.json.tasks || []) {\n    const type = String((t.status && t.status.type) || '').toLowerCase();\n    if (type === 'closed' || type === 'done') continue;\n    openCount += 1;\n    let sku = '';\n    if (fieldId) {\n      const field = (t.custom_fields || []).find((f) => f.id === fieldId);\n      if (field && field.value !== undefined && field.value !== null) sku = String(field.value).trim();\n    }\n    if (!sku) {\n      const m = /^Reorder\\s+(.+?):\\s/i.exec(t.name || '');\n      if (m) sku = m[1].trim();\n    }\n    if (!sku) { otherTasks += 1; continue; }\n    const stock = /On hand:\\s*(-?\\d+)/i.exec(t.text_content || t.description || '');\n    const key = sku.toUpperCase();\n    (bySku[key] = bySku[key] || []).push({\n      id: t.id,\n      url: t.url,\n      sku,\n      priority: t.priority && t.priority.id ? Number(t.priority.id) : null,\n      created: Number(t.date_created || 0),\n      stockInDescription: stock ? Number(stock[1]) : null,\n    });\n  }\n}\n// The oldest task for a SKU is the one that is kept up to date\nfor (const list of Object.values(bySku)) list.sort((a, b) => a.created - b.created || String(a.id).localeCompare(String(b.id)));\nreturn [{ json: { bySku, skus: Object.keys(bySku), openCount, otherTasks, pagesRead: pages.length } }];\n"
+      }
+    },
+    {
+      "id": "85bfc3c3-f005-554c-830c-7e1bb4891d9f",
+      "name": "Client Credentials?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2360,
+        240
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "caea5187-9a69-5d16-a220-9bf6e5142792",
+              "leftValue": "={{ $('Load Settings').first().json.shop.useClientCredentials }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "0ccac916-1113-5fc5-b07d-4056ee1d4615",
+      "name": "Shopify: Get Token",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2580,
+        40
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Load Settings').first().json.shop.baseUrl + '/admin/oauth/access_token' }}",
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "grant_type",
+              "value": "client_credentials"
+            },
+            {
+              "name": "client_id",
+              "value": "={{ $env.SHOPIFY_CLIENT_ID }}"
+            },
+            {
+              "name": "client_secret",
+              "value": "={{ $env.SHOPIFY_CLIENT_SECRET }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "ceefb3d0-b06a-532d-8027-41d0e67795d3",
+      "name": "Stop: Shopify Auth Failed",
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [
+        3060,
+        40
+      ],
+      "parameters": {
+        "errorMessage": "={{ 'Shopify did not give an access token' + (($json.error ? Number($json.error.status || $json.error.statusCode || ($json.error.response && $json.error.response.status) || 0) : 0) ? ' (HTTP ' + ($json.error ? Number($json.error.status || $json.error.statusCode || ($json.error.response && $json.error.response.status) || 0) : 0) + ')' : '') + '. Check SHOPIFY_CLIENT_ID, SHOPIFY_CLIENT_SECRET and that the app is installed on the store. Nothing was changed in ClickUp.' }}"
+      }
+    },
+    {
+      "id": "a1dbd9a5-7150-5b68-a824-8962b4db10f5",
+      "name": "Next Page",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2820,
+        240
+      ],
+      "parameters": {
+        "jsCode": "// Builds the GraphQL request for the next page of variants. The scan loop comes back here after every page.\nconst shop = $('Load Settings').first().json.shop;\nconst s = $json;\nconst state = { cursor: s.cursor || null, pages: s.pages || 0, readRuns: s.readRuns || 0, throttleWaits: s.throttleWaits || 0 };\nconst query = `query LowStockScan($first: Int!, $after: String, $query: String, $ns: String!, $key: String!) {\n  productVariants(first: $first, after: $after, query: $query, sortKey: ID) {\n    nodes {\n      id\n      sku\n      title\n      inventoryQuantity\n      inventoryItem { tracked }\n      product { id title vendor }\n      reorderPoint: metafield(namespace: $ns, key: $key) { value }\n    }\n    pageInfo { hasNextPage endCursor }\n  }\n}`;\nconst variables = { first: shop.pageSize, after: state.cursor, query: shop.variantQuery, ns: shop.metafieldNamespace, key: shop.metafieldKey };\nreturn [{ json: { ...state, request: { query, variables } } }];\n"
+      }
+    },
+    {
+      "id": "50f387c9-e8f5-523b-a115-f4044bb97351",
+      "name": "Shopify: Get Variants",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3040,
+        240
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Load Settings').first().json.shop.baseUrl + '/admin/api/' + $('Load Settings').first().json.shop.apiVersion + '/graphql.json' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $('Shopify: Get Token').isExecuted ? $('Shopify: Get Token').first().json.access_token : $env.SHOPIFY_ACCESS_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.request) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "c096fe87-ac4a-5291-a612-d9fb5eb36f55",
+      "name": "Read Page",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3260,
+        240
+      ],
+      "parameters": {
+        "jsCode": "// Reads one page of variants and decides what happens next: done, next page, wait, or fail.\n// Each run outputs only its own page, so a big catalog is not copied through every loop pass.\nconst settings = $('Load Settings').first().json;\nconst openSkus = new Set($('Index Open Tasks').first().json.skus);\nconst state = $('Next Page').first().json;   // the request this answer belongs to\nconst res = $json;\nconst MAX_THROTTLE_WAITS = 5;\nconst MAX_WAIT_SECONDS = 60;\nconst MAX_PAGES = 1000;\n\nconst next = {\n  cursor: state.cursor || null,\n  pages: state.pages || 0,\n  readRuns: (state.readRuns || 0) + 1,\n  throttleWaits: state.throttleWaits || 0,\n  waitSeconds: 0,\n  route: 'next',\n  records: [],\n  counts: { variants: 0, untracked: 0, noSku: 0, noStock: 0 },\n  notes: [],\n};\nconst fail = (message) => [{ json: { ...next, route: 'fail', failure: message } }];\nconst cost = res.extensions && res.extensions.cost;\nconst secondsToRefill = (needed) => {\n  const t = cost && cost.throttleStatus;\n  if (!t || !(Number(t.restoreRate) > 0) || typeof needed !== 'number') return 0;\n  return Math.ceil(Math.max(0, needed - Number(t.currentlyAvailable)) / Number(t.restoreRate));\n};\nconst waitAndRetry = (seconds, reason) => {\n  next.throttleWaits += 1;\n  if (next.throttleWaits > MAX_THROTTLE_WAITS) {\n    return fail(`Shopify kept throttling the stock scan (${reason}) after ${MAX_THROTTLE_WAITS} waits. Nothing was changed in ClickUp.`);\n  }\n  next.waitSeconds = Math.min(MAX_WAIT_SECONDS, Math.max(1, seconds));\n  next.route = 'wait';\n  return [{ json: next }];\n};\n\n// 1. HTTP errors. The node has already retried 3 times.\nif (res.error && !res.data) {\n  const status = Number(res.error.status || res.error.statusCode || (res.error.response && res.error.response.status) || 0);\n  if (status === 429) return waitAndRetry(2 ** (next.throttleWaits + 1), 'HTTP 429');\n  // n8n puts the status and the raw body in the message, like 503 - \"{\\\"errors\\\":\\\"...\\\"}\"\n  let detail = String(res.error.message || 'no details');\n  const m = /^\\d{3} - (\"[\\s\\S]*\")$/.exec(detail);\n  if (m) {\n    try {\n      const body = JSON.parse(m[1]);\n      try {\n        const j = JSON.parse(body);\n        detail = typeof j.errors === 'string' ? j.errors : JSON.stringify(j.errors || j).slice(0, 300);\n      } catch (x) {\n        detail = String(body).slice(0, 300);\n      }\n    } catch (x) { /* keep the message as it is */ }\n  }\n  return fail(`The Shopify stock scan failed${status ? ' with HTTP ' + status : ''} (${detail}). Nothing was changed in ClickUp.`);\n}\n// 2. GraphQL errors come back with HTTP 200\nconst errors = Array.isArray(res.errors) ? res.errors : res.errors ? [{ message: String(res.errors) }] : [];\nif (errors.some((e) => e && e.extensions && e.extensions.code === 'THROTTLED')) {\n  const needed = cost && typeof cost.requestedQueryCost === 'number' ? cost.requestedQueryCost : null;\n  return waitAndRetry(secondsToRefill(needed) || 2 ** (next.throttleWaits + 1), 'THROTTLED');\n}\nif (errors.length) {\n  const text = errors.map((e) => (e.extensions && e.extensions.code ? e.extensions.code + ': ' : '') + e.message).join('; ').replace(/[.\\s]+$/, '');\n  return fail(`Shopify returned an error for the stock scan: ${text}. Nothing was changed in ClickUp.`);\n}\nconst conn = res.data && res.data.productVariants;\nif (!conn || !Array.isArray(conn.nodes)) return fail('Shopify answered without a productVariants list. Nothing was changed in ClickUp.');\n\n// 3. A good page\nnext.throttleWaits = 0;\nnext.pages += 1;\nconst def = settings.defaults.reorderPoint;\nconst gidNumber = (gid) => String(gid || '').split('/').pop();\nfor (const v of conn.nodes) {\n  next.counts.variants += 1;\n  const sku = String(v.sku || '').trim();\n  if (!sku) { next.counts.noSku += 1; continue; }\n  if (!v.inventoryItem || v.inventoryItem.tracked !== true) { next.counts.untracked += 1; continue; }\n  if (typeof v.inventoryQuantity !== 'number') { next.counts.noStock += 1; continue; }\n  let reorderPoint = def;\n  let source = 'default';\n  const raw = v.reorderPoint && v.reorderPoint.value !== undefined && v.reorderPoint.value !== null ? String(v.reorderPoint.value).trim() : '';\n  if (raw !== '') {\n    if (/^\\d+$/.test(raw)) { reorderPoint = Number(raw); source = 'metafield'; }\n    else next.notes.push(`${sku}: the reorder point metafield is \"${raw.slice(0, 30)}\", which is not a whole number, so the default of ${def} was used.`);\n  }\n  const record = { sku, qty: v.inventoryQuantity, reorderPoint };\n  // Full details only for variants that are low or have an open task. The rest only count toward SKU totals.\n  if (record.qty <= reorderPoint || openSkus.has(sku.toUpperCase())) {\n    Object.assign(record, {\n      source,\n      variantId: gidNumber(v.id),\n      productId: gidNumber(v.product && v.product.id),\n      product: (v.product && v.product.title) || '',\n      variant: v.title || '',\n      vendor: (v.product && v.product.vendor) || '',\n    });\n  }\n  next.records.push(record);\n}\nnext.cursor = (conn.pageInfo && conn.pageInfo.endCursor) || null;\nif (!(conn.pageInfo && conn.pageInfo.hasNextPage) || !next.cursor) {\n  next.route = 'done';\n  return [{ json: next }];\n}\nif (next.pages >= MAX_PAGES) return fail(`The stock scan stopped after ${MAX_PAGES} pages. Narrow SHOPIFY_VARIANT_QUERY or raise SHOPIFY_PAGE_SIZE.`);\n// Shopify refills its query budget every second. If the next page would not fit, wait first.\nconst pause = secondsToRefill(cost && cost.requestedQueryCost);\nif (pause > 0) {\n  next.waitSeconds = Math.min(MAX_WAIT_SECONDS, pause);\n  next.route = 'wait';\n}\nreturn [{ json: next }];\n"
+      }
+    },
+    {
+      "id": "fcbe25cf-5d13-5ff0-9797-e7742ce4790f",
+      "name": "Page Result",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        3480,
+        240
+      ],
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "id": "c9e179f7-bcef-52f2-b2bd-d80fb2ac5f77",
+                    "leftValue": "={{ $json.route }}",
+                    "rightValue": "done",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Done"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "id": "09ddc8ef-f6d2-58bc-9f43-ba6a7257c194",
+                    "leftValue": "={{ $json.route }}",
+                    "rightValue": "next",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Next Page"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "id": "70d4a7b4-678c-5819-830c-c94c054f36e7",
+                    "leftValue": "={{ $json.route }}",
+                    "rightValue": "wait",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Wait"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "id": "6d13059d-e7b6-5d68-8d48-66b1ae179183",
+                    "leftValue": "={{ $json.route }}",
+                    "rightValue": "fail",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Failed"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "1e4e6c0f-6580-502c-859d-07e6b491c19a",
+      "name": "Wait: Shopify Throttle",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        3720,
+        420
+      ],
+      "parameters": {
+        "amount": "={{ $json.waitSeconds }}",
+        "unit": "seconds"
+      },
+      "webhookId": "9aa60ece-68e8-598e-ac20-8cfd5019e71e"
+    },
+    {
+      "id": "736fbcec-8601-5ffc-82ee-b1a18a8daac5",
+      "name": "Stop: Shopify Failed",
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [
+        3720,
+        600
+      ],
+      "parameters": {
+        "errorMessage": "={{ $json.failure }}"
+      }
+    },
+    {
+      "id": "3c0c9c24-1144-56b4-a774-f67d3010ac96",
+      "name": "Plan Changes",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4000,
+        240
+      ],
+      "parameters": {
+        "jsCode": "// Compares Shopify stock with the open reorder tasks and plans the ClickUp changes.\nconst settings = $('Load Settings').first().json;\nconst open = $('Index Open Tasks').first().json;\nconst scan = $json;\nconst store = $getWorkflowStaticData('global');\nstore.reported = store.reported || {};   // task ID -> the stock number the team was last told about\nconst DAY = 24 * 60 * 60 * 1000;\nconst now = Date.now();\nconst PRIORITY = { 1: 'urgent', 2: 'high', 3: 'normal', 4: 'low' };\n\n// Every page the scan read (a throttled attempt has no records)\nconst counts = { variants: 0, untracked: 0, noSku: 0, noStock: 0 };\nconst needsLook = [];\nconst groups = new Map();\nfor (let run = 0; run < scan.readRuns; run++) {\n  for (const item of $('Read Page').all(0, run)) {\n    const page = item.json;\n    for (const k of Object.keys(counts)) counts[k] += (page.counts && page.counts[k]) || 0;\n    needsLook.push(...(page.notes || []));\n    for (const r of page.records || []) {\n      // Shopify allows one SKU on several variants. Their stock is added up.\n      const key = r.sku.toUpperCase();\n      const g = groups.get(key) || { key, qty: 0, reorderPoint: 0, variants: 0, info: null };\n      g.qty += r.qty;\n      g.reorderPoint = Math.max(g.reorderPoint, r.reorderPoint);\n      g.variants += 1;\n      if (!g.info && r.variantId) g.info = r;\n      groups.set(key, g);\n    }\n  }\n}\n\nconst supplierFor = (sku, vendor) => {\n  const s = settings.suppliers;\n  if (s[sku]) return s[sku];\n  const prefix = Object.keys(s)\n    .filter((k) => k.endsWith('*') && sku.toUpperCase().startsWith(k.slice(0, -1).toUpperCase()))\n    .sort((a, b) => b.length - a.length)[0];\n  if (prefix) return s[prefix];\n  if (vendor && s[vendor]) return s[vendor];\n  return s.default || null;\n};\n// 1 urgent: out of stock. 2 high: at or below half the reorder point. 3 normal: the rest.\nconst severity = (qty, rop) => (qty <= 0 ? 1 : qty <= Math.floor(rop / 2) ? 2 : 3);\nconst titleOf = (i) => i.product + (i.variant && i.variant !== 'Default Title' ? ` (${i.variant})` : '');\nconst handle = settings.shop.domain.replace(/\\.myshopify\\.com$/, '');\n\nconst actions = [];\nconst stillLow = [];\nconst seen = new Set();\nlet lowCount = 0;\nlet restockedCount = 0;\n\nfor (const g of groups.values()) {\n  if (!g.info) continue;   // not low and no open task\n  const i = g.info;\n  const title = titleOf(i);\n  const low = g.qty <= g.reorderPoint;\n  const tasks = open.bySku[g.key] || [];\n  const task = tasks[0];\n  seen.add(g.key);\n  if (low) lowCount += 1;\n  if (g.variants > 1) needsLook.push(`${i.sku} is used on ${g.variants} variants. Their stock was added up: ${g.qty} on hand.`);\n  if (tasks.length > 1) needsLook.push(`${i.sku} has ${tasks.length} open reorder tasks. The oldest one is kept up to date. Please close the others: ${tasks.slice(1).map((t) => `<${t.url}|${t.id}>`).join(', ')}`);\n  const base = { sku: i.sku, listId: settings.clickup.listId, taskId: task ? task.id : null, taskUrl: task ? task.url : null, stepIndex: 0, rateLimitWaits: 0 };\n  const info = { title, qty: g.qty, reorderPoint: g.reorderPoint };\n\n  if (low && !task) {\n    const supplier = supplierFor(i.sku, i.vendor);\n    const leadDays = supplier && Number.isInteger(supplier.leadTimeDays) ? supplier.leadTimeDays : settings.defaults.leadTimeDays;\n    const due = now + leadDays * DAY;\n    const p = severity(g.qty, g.reorderPoint);\n    const supplierText = supplier && (supplier.name || supplier.email) ? [supplier.name, supplier.email].filter(Boolean).join(', ') : 'not set (add it to SUPPLIERS_JSON)';\n    const description = [\n      'Stock is at or below the reorder point in Shopify.',\n      '',\n      `SKU: ${i.sku}`,\n      `Product: ${title}`,\n      `On hand: ${g.qty}`,\n      `Reorder point: ${g.reorderPoint}${i.source === 'metafield' ? '' : ' (store default)'}`,\n      `Supplier: ${supplierText}`,\n      `Lead time: ${leadDays} days. The due date is when new stock should arrive if it is ordered today.`,\n      `Shopify: https://admin.shopify.com/store/${handle}/products/${i.productId}/variants/${i.variantId}`,\n      '',\n      'Opened by the daily low stock check. It adds a comment when stock drops further and closes this task when stock is back above the reorder point.',\n    ].join('\\n');\n    const body = { name: `Reorder ${i.sku}: ${title}`, description, priority: p, due_date: due, due_date_time: false, notify_all: false };\n    if (settings.clickup.assignees.length) body.assignees = settings.clickup.assignees;\n    if (settings.clickup.tag) body.tags = [settings.clickup.tag];\n    if (settings.clickup.skuFieldId) body.custom_fields = [{ id: settings.clickup.skuFieldId, value: i.sku }];\n    // With a SKU field, ClickUp is asked once more right before the create (see ClickUp: Find SKU Task)\n    const steps = settings.clickup.skuFieldId ? [{ kind: 'check' }, { kind: 'create', body }] : [{ kind: 'create', body }];\n    actions.push({\n      ...base, actionId: `${i.sku}:new`, purpose: 'new', steps,\n      info: { ...info, priorityName: PRIORITY[p], supplierName: supplier && supplier.name ? supplier.name : 'no supplier set', dueText: DateTime.fromMillis(due).toFormat('LLL d'), leadDays },\n    });\n    continue;\n  }\n  if (!task) continue;\n\n  if (!low) {\n    // Back in stock: close first, then explain. A failed close is retried on the next run; the comment is never doubled.\n    restockedCount += 1;\n    const text = `Back in stock: ${g.qty} on hand, above the reorder point of ${g.reorderPoint}. Closed automatically by the low stock check.`;\n    actions.push({\n      ...base, actionId: `${i.sku}:restock`, purpose: 'restock',\n      steps: [{ kind: 'update', body: { status: settings.clickup.closedStatus } }, { kind: 'comment', body: { comment_text: text, notify_all: false } }],\n      info,\n    });\n    continue;\n  }\n\n  // Still low and a task is open: comment only when stock fell below the number the team last saw\n  const known = store.reported[task.id];\n  const previous = known && typeof known.stock === 'number' ? known.stock : task.stockInDescription;\n  const p = severity(g.qty, g.reorderPoint);\n  const raise = task.priority === null || task.priority > p;   // never lowers a priority someone set\n  const steps = [];\n  if (typeof previous !== 'number') {\n    store.reported[task.id] = { sku: i.sku, stock: g.qty, at: now };   // a task made by hand: start tracking from today\n  } else if (g.qty < previous) {\n    let text = `Stock dropped from ${previous} to ${g.qty} on hand (reorder point ${g.reorderPoint}).`;\n    if (g.qty <= 0) text += ' It is now out of stock.';\n    if (raise) text += ` Priority raised to ${PRIORITY[p]}.`;\n    steps.push({ kind: 'comment', body: { comment_text: text, notify_all: false } });\n  }\n  if (raise) steps.push({ kind: 'update', body: { priority: p } });\n  if (!steps.length) {\n    stillLow.push({ sku: i.sku, title, qty: g.qty, reorderPoint: g.reorderPoint, taskUrl: task.url });\n    continue;\n  }\n  const purpose = steps[0].kind === 'comment' ? 'drop' : 'raise';\n  actions.push({ ...base, actionId: `${i.sku}:${purpose}`, purpose, steps, info: { ...info, previous, priorityName: PRIORITY[p], raise } });\n}\n\n// Open tasks whose SKU the scan did not find\nfor (const [key, tasks] of Object.entries(open.bySku)) {\n  if (!seen.has(key)) needsLook.push(`${tasks[0].sku} has an open reorder task, but no tracked Shopify variant in this scan has that SKU. <${tasks[0].url}|Open task>`);\n}\n// Forget tasks that are no longer open\nconst openIds = new Set(Object.values(open.bySku).flat().map((t) => String(t.id)));\nfor (const id of Object.keys(store.reported)) if (!openIds.has(id)) delete store.reported[id];\n\nreturn [{\n  json: {\n    actions,\n    summary: { trigger: settings.trigger, startedAt: settings.startedAt, pages: scan.pages, counts, lowCount, restockedCount, stillLow, needsLook },\n  },\n}];\n"
+      }
+    },
+    {
+      "id": "e3044e8a-4fdb-54ca-99b4-c6d9cda4caab",
+      "name": "Any Changes?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        4220,
+        240
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "a03517c5-79ad-5519-9f42-094bdcac8359",
+              "leftValue": "={{ $json.actions.length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "f3462961-40ed-5a78-b041-633382124a46",
+      "name": "Split Changes",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        4500,
+        340
+      ],
+      "parameters": {
+        "fieldToSplitOut": "actions",
+        "options": {}
+      }
+    },
+    {
+      "id": "3e548b59-758a-582e-af47-d622c575ee75",
+      "name": "Loop: ClickUp Changes",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        4720,
+        340
+      ],
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      }
+    },
+    {
+      "id": "d20a8da6-0824-50a4-a9c4-ad6fa77e8bfd",
+      "name": "Prepare Step",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4940,
+        540
+      ],
+      "parameters": {
+        "jsCode": "// Picks the next ClickUp call for this change. After a 429 wait, the same step comes back here.\nconst a = { ...$json };\nif (a.error) {\n  a.rateLimitWaits = (a.rateLimitWaits || 0) + 1;\n  delete a.error;\n}\nconst step = a.steps[a.stepIndex];\na.kind = step.kind;\na.body = step.body;\nreturn [{ json: a }];\n"
+      }
+    },
+    {
+      "id": "e98bc17c-ee69-5d45-bef8-0f1a38197202",
+      "name": "Call Type",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        5160,
+        540
+      ],
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "id": "4cee695f-3aea-59f0-b0ce-ceca7b220d4a",
+                    "leftValue": "={{ $json.kind }}",
+                    "rightValue": "create",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Create"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "id": "609cdfbe-0f96-54df-9e83-572c36d6eb0b",
+                    "leftValue": "={{ $json.kind }}",
+                    "rightValue": "comment",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Comment"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "id": "5c1ab562-e7db-5ee8-bcf0-43c1b9300e71",
+                    "leftValue": "={{ $json.kind }}",
+                    "rightValue": "update",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Update"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "id": "079edd6d-1204-575f-9d12-6d5d0cea8524",
+                    "leftValue": "={{ $json.kind }}",
+                    "rightValue": "check",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Check"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "c7319ff6-cc19-5ec2-9310-a70368afa2a7",
+      "name": "ClickUp: Create Task",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        5420,
+        380
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://api.clickup.com/api/v2/list/' + $json.listId + '/task' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ $env.CLICKUP_API_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "bf388f39-bb18-538e-8ee0-a5af8d5b1a63",
+      "name": "ClickUp: Add Comment",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        5420,
+        560
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://api.clickup.com/api/v2/task/' + $json.taskId + '/comment' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ $env.CLICKUP_API_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "6bb4265e-759c-5db4-876b-adf4b0b1a541",
+      "name": "ClickUp: Update Task",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        5420,
+        740
+      ],
+      "parameters": {
+        "method": "PUT",
+        "url": "={{ 'https://api.clickup.com/api/v2/task/' + $json.taskId }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ $env.CLICKUP_API_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "ca087259-c052-54cf-bfac-e431f0698b93",
+      "name": "ClickUp: Find SKU Task",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        5420,
+        920
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ 'https://api.clickup.com/api/v2/list/' + $json.listId + '/task' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ $env.CLICKUP_API_TOKEN }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "custom_fields",
+              "value": "={{ JSON.stringify([{ field_id: $('Load Settings').first().json.clickup.skuFieldId, operator: '==', value: $json.sku }]) }}"
+            },
+            {
+              "name": "include_closed",
+              "value": "false"
+            },
+            {
+              "name": "archived",
+              "value": "false"
+            },
+            {
+              "name": "subtasks",
+              "value": "true"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "eff25545-f577-5e9d-a387-d951e17d560d",
+      "name": "Rate Limited?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        5660,
+        1000
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "b62eb1e1-fccf-58ed-94b6-ccaa7ed9446c",
+              "leftValue": "={{ ($json.error ? Number($json.error.status || $json.error.statusCode || ($json.error.response && $json.error.response.status) || 0) : 0) }}",
+              "rightValue": 429,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "1ed1713d-000e-55aa-84d5-0dcd9fcf9ee6",
+              "leftValue": "={{ $json.rateLimitWaits || 0 }}",
+              "rightValue": "={{ $('Load Settings').first().json.clickup.rateLimitRetries }}",
+              "operator": {
+                "type": "number",
+                "operation": "lt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "694d43d2-2ee5-5e56-b376-7794262df63a",
+      "name": "Wait: ClickUp Rate Limit",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        5880,
+        1100
+      ],
+      "parameters": {
+        "amount": "={{ $('Load Settings').first().json.clickup.rateLimitWaitSeconds }}",
+        "unit": "seconds"
+      },
+      "webhookId": "c763e957-c5f0-5989-8ebe-590f16b393c6"
+    },
+    {
+      "id": "3adffaa2-9907-5738-aec9-26262550d999",
+      "name": "Step Done",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5660,
+        540
+      ],
+      "parameters": {
+        "jsCode": "// Records the result of one ClickUp call and remembers the stock number the team was told about.\nconst a = JSON.parse(JSON.stringify($('Prepare Step').first().json));\nconst store = $getWorkflowStaticData('global');\nstore.reported = store.reported || {};\nconst failed = $json.error !== undefined && $json.actionId === a.actionId;\n// n8n puts the status and the raw body in the message, like 500 - \"{\\\"err\\\":\\\"...\\\",\\\"ECODE\\\":\\\"...\\\"}\"\nconst readable = (e) => {\n  const msg = String(e.message || 'no details');\n  const m = /^\\d{3} - (\"[\\s\\S]*\")$/.exec(msg);\n  if (!m) return msg;\n  try {\n    const body = JSON.parse(m[1]);\n    try {\n      const j = JSON.parse(body);\n      return j.err ? j.err + (j.ECODE ? ' (' + j.ECODE + ')' : '') : JSON.stringify(j).slice(0, 300);\n    } catch (x) {\n      return String(body).slice(0, 300);\n    }\n  } catch (x) {\n    return msg;\n  }\n};\na.stepsDone = a.stepsDone || [];\nconst badAnswer = !failed && ((a.kind === 'create' && !$json.id) || (a.kind === 'check' && !Array.isArray($json.tasks)));\nif (failed || badAnswer) {\n  // A failed check also stops the create: without the check a duplicate could slip through. The next run tries again.\n  const e = $json.error || {};\n  const code = e.status || e.statusCode || (e.response && e.response.status);\n  a.ok = false;\n  a.failedStep = a.kind;\n  // For a 429 n8n only says \"Try spacing your requests out...\", which is about n8n batching, so it is replaced\n  const detail = Number(code) === 429 ? `the rate limit was still reached after ${a.rateLimitWaits || 0} waits` : readable(e);\n  a.error = failed ? (code ? 'HTTP ' + code + ', ' : '') + detail : a.kind === 'create' ? 'ClickUp did not return a task ID' : 'ClickUp did not return a task list';\n  a.route = 'finished';\n} else if (a.kind === 'check') {\n  // Only an open task whose SKU field is exactly this SKU counts\n  const fieldId = $('Load Settings').first().json.clickup.skuFieldId;\n  const want = String(a.sku).trim().toUpperCase();\n  const found = $json.tasks.filter((t) => {\n    const type = String((t.status && t.status.type) || '').toLowerCase();\n    if (type === 'closed' || type === 'done') return false;\n    const f = (t.custom_fields || []).find((x) => x.id === fieldId);\n    return Boolean(f) && f.value !== undefined && f.value !== null && String(f.value).trim().toUpperCase() === want;\n  });\n  a.stepsDone.push('check');\n  if (found.length) {\n    a.ok = true;\n    a.alreadyOpen = true;\n    a.taskId = found[0].id;\n    a.taskUrl = found[0].url;\n    a.route = 'finished';\n  } else {\n    a.stepIndex += 1;\n    a.route = 'more';\n  }\n} else {\n  if (a.kind === 'create') {\n    a.taskId = $json.id;\n    a.taskUrl = $json.url;\n  }\n  a.stepsDone.push(a.kind);\n  if (a.purpose === 'new' && a.kind === 'create') store.reported[a.taskId] = { sku: a.sku, stock: a.info.qty, at: Date.now() };\n  if (a.purpose === 'drop' && a.kind === 'comment') store.reported[a.taskId] = { sku: a.sku, stock: a.info.qty, at: Date.now() };\n  if (a.purpose === 'restock' && a.kind === 'update') delete store.reported[a.taskId];\n  a.stepIndex += 1;\n  if (a.stepIndex < a.steps.length) a.route = 'more';\n  else {\n    a.ok = true;\n    a.route = 'finished';\n  }\n}\ndelete a.body;\ndelete a.kind;\nreturn [{ json: a }];\n"
+      }
+    },
+    {
+      "id": "b71d8680-472b-5318-a2d0-d8a6bc1c8128",
+      "name": "More Steps?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        5880,
+        540
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "c0870b39-80b1-5d38-a1b0-489445d33d26",
+              "leftValue": "={{ $json.route }}",
+              "rightValue": "more",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "899c8d2a-1f8d-5706-992e-98757fa59385",
+      "name": "Build Digest",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        6120,
+        240
+      ],
+      "parameters": {
+        "jsCode": "// Writes the Slack digest for this run.\nconst plan = $('Plan Changes').first().json;\nconst s = plan.summary;\nconst results = $('Loop: ClickUp Changes').isExecuted ? $input.all().map((i) => i.json) : [];\nconst did = (r, kind) => (r.stepsDone || []).includes(kind);\nconst link = (url) => (url ? ` <${url}|Open task>` : '');\nconst cap = (w) => w.charAt(0).toUpperCase() + w.slice(1);\nconst MAX_LINES = 25;\nconst blocks = [];\nconst block = (title, lines) => {\n  if (!lines.length) return;\n  const shown = lines.slice(0, MAX_LINES).map((l) => `• ${l}`);\n  if (lines.length > MAX_LINES) shown.push(`and ${lines.length - MAX_LINES} more`);\n  blocks.push(`*${title} (${lines.length})*\\n${shown.join('\\n')}`);\n};\n\nblock('New reorder tasks', results.filter((r) => r.purpose === 'new' && did(r, 'create')).map((r) =>\n  `${r.sku} ${r.info.title}: ${r.info.qty} on hand, reorder point ${r.info.reorderPoint}. ${cap(r.info.priorityName)} priority, ${r.info.supplierName}, due ${r.info.dueText}.${link(r.taskUrl)}`));\n\nblock('Updated', results.filter((r) => (r.purpose === 'drop' && did(r, 'comment')) || (r.purpose === 'raise' && did(r, 'update'))).map((r) => {\n  const raised = did(r, 'update') ? `priority raised to ${r.info.priorityName}` : '';\n  if (r.purpose === 'raise') return `${r.sku} ${r.info.title}: ${raised} (${r.info.qty} on hand, reorder point ${r.info.reorderPoint}).${link(r.taskUrl)}`;\n  const parts = [`dropped from ${r.info.previous} to ${r.info.qty} on hand`];\n  if (r.info.qty <= 0) parts.push('now out of stock');\n  if (raised) parts.push(raised);\n  return `${r.sku} ${r.info.title}: ${parts.join(', ')} (reorder point ${r.info.reorderPoint}).${link(r.taskUrl)}`;\n}));\n\nblock('Restocked and closed', results.filter((r) => r.purpose === 'restock' && did(r, 'update')).map((r) =>\n  `${r.sku} ${r.info.title}: ${r.info.qty} on hand, above the reorder point of ${r.info.reorderPoint}.${link(r.taskUrl)}`));\n\nblock('Still low, no change', s.stillLow.map((x) => `${x.sku} ${x.title}: ${x.qty} on hand, reorder point ${x.reorderPoint}.${link(x.taskUrl)}`));\n// An open task for the SKU appeared after this run read the list (a second run, or a person). No second task was made.\nconst appeared = results.filter((r) => r.alreadyOpen).map((r) =>\n  `${r.sku} is low (${r.info.qty} on hand, reorder point ${r.info.reorderPoint}), but an open reorder task for it was made while this run was going, so no second task was created.${link(r.taskUrl)}`);\nblock('Needs a look', [...s.needsLook, ...appeared]);\n\nconst failures = results.filter((r) => !r.ok).map((r) => {\n  if (r.purpose === 'restock' && r.failedStep === 'comment') return `${r.sku}: the task was closed, but the comment could not be added (${r.error}).`;\n  const what = { check: 'check ClickUp for an open task, so no task was created', create: 'create the reorder task', comment: 'add the stock comment', update: r.purpose === 'restock' ? 'close the task' : 'raise the priority' }[r.failedStep];\n  return `${r.sku}: could not ${what} (${r.error}). It is tried again on the next run.`;\n});\nblock('Could not update ClickUp', failures);\n\nconst c = s.counts;\nconst skipped = [];\nif (c.untracked) skipped.push(`${c.untracked} not tracked`);\nif (c.noSku) skipped.push(`${c.noSku} without a SKU`);\nif (c.noStock) skipped.push(`${c.noStock} without a stock number`);\nconst head = [\n  `*Low stock check*, ${DateTime.fromISO(s.startedAt).toFormat('LLL d, yyyy h:mm a')} (${s.trigger})`,\n  `Checked ${c.variants} variants on ${s.pages} page${s.pages === 1 ? '' : 's'}: ${s.lowCount} low, ${s.restockedCount} back in stock.` + (skipped.length ? ` Skipped ${skipped.join(', ')}.` : ''),\n];\nif (!blocks.length) head.push('Nothing is low. No changes in ClickUp.');\nreturn [{ json: { text: [head.join('\\n'), ...blocks].join('\\n\\n'), failedCount: failures.length, failures } }];\n"
+      }
+    },
+    {
+      "id": "9c6f4a2d-86d5-5bc6-a247-ba81810ff411",
+      "name": "Slack Set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        6340,
+        240
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "bd28f9a7-5d5d-5c8d-ba38-2aeef42ac7ab",
+              "leftValue": "={{ $env.SLACK_WEBHOOK_URL }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "1ab2bbf9-87ac-56f9-ae55-780da0f8114d",
+      "name": "Slack: Post Digest",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        6560,
+        100
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SLACK_WEBHOOK_URL }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ text: $json.text }) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "959b6d0b-fcff-567b-8a4d-4eed853b1279",
+      "name": "Stop: Slack Failed",
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [
+        6800,
+        480
+      ],
+      "parameters": {
+        "errorMessage": "={{ ('Could not post the stock digest to Slack' + (($json.error ? Number($json.error.status || $json.error.statusCode || ($json.error.response && $json.error.response.status) || 0) : 0) ? ' (HTTP ' + ($json.error ? Number($json.error.status || $json.error.statusCode || ($json.error.response && $json.error.response.status) || 0) : 0) + ')' : '') + '. The ClickUp changes were made. ' + ($('Build Digest').first().json.failedCount ? $('Build Digest').first().json.failures.join(' ') : '')).trim() }}"
+      }
+    },
+    {
+      "id": "37f5f93f-b30f-58c0-8458-adb61c73104d",
+      "name": "Any Failures?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        6800,
+        240
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "ff417757-7d42-5afd-a0ba-93dc03fe83a3",
+              "leftValue": "={{ $('Build Digest').first().json.failedCount }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "66115267-9cb0-5755-ad55-c5a497292a5c",
+      "name": "Stop: ClickUp Changes Failed",
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [
+        7040,
+        360
+      ],
+      "parameters": {
+        "errorMessage": "={{ $('Build Digest').first().json.failedCount + ' ClickUp change(s) failed. ' + $('Build Digest').first().json.failures.join(' ') }}"
+      }
+    },
+    {
+      "id": "9e44db21-c6f7-5077-a4b6-4398af147223",
+      "name": "Done",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        7040,
+        140
+      ],
+      "parameters": {}
+    }
+  ],
+  "connections": {
+    "Run Now": {
+      "main": [
+        [
+          {
+            "node": "Run Now Allowed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Now Allowed?": {
+      "main": [
+        [
+          {
+            "node": "Load Settings",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond: Unauthorized",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Daily Schedule": {
+      "main": [
+        [
+          {
+            "node": "Load Settings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Settings": {
+      "main": [
+        [
+          {
+            "node": "Settings OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Settings OK?": {
+      "main": [
+        [
+          {
+            "node": "Respond: Started",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond: Bad Settings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond: Bad Settings": {
+      "main": [
+        [
+          {
+            "node": "Stop: Bad Settings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond: Started": {
+      "main": [
+        [
+          {
+            "node": "ClickUp: Get Open Tasks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ClickUp: Get Open Tasks": {
+      "main": [
+        [
+          {
+            "node": "Index Open Tasks",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Read Rate Limited?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Rate Limited?": {
+      "main": [
+        [
+          {
+            "node": "Wait: ClickUp Read Limit",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Stop: ClickUp Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait: ClickUp Read Limit": {
+      "main": [
+        [
+          {
+            "node": "ClickUp: Get Open Tasks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Index Open Tasks": {
+      "main": [
+        [
+          {
+            "node": "Client Credentials?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Client Credentials?": {
+      "main": [
+        [
+          {
+            "node": "Shopify: Get Token",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Next Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shopify: Get Token": {
+      "main": [
+        [
+          {
+            "node": "Next Page",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Stop: Shopify Auth Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Next Page": {
+      "main": [
+        [
+          {
+            "node": "Shopify: Get Variants",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shopify: Get Variants": {
+      "main": [
+        [
+          {
+            "node": "Read Page",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Read Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Page": {
+      "main": [
+        [
+          {
+            "node": "Page Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Page Result": {
+      "main": [
+        [
+          {
+            "node": "Plan Changes",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Next Page",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait: Shopify Throttle",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Stop: Shopify Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait: Shopify Throttle": {
+      "main": [
+        [
+          {
+            "node": "Next Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Plan Changes": {
+      "main": [
+        [
+          {
+            "node": "Any Changes?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Any Changes?": {
+      "main": [
+        [
+          {
+            "node": "Split Changes",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Changes": {
+      "main": [
+        [
+          {
+            "node": "Loop: ClickUp Changes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop: ClickUp Changes": {
+      "main": [
+        [
+          {
+            "node": "Build Digest",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Step",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Step": {
+      "main": [
+        [
+          {
+            "node": "Call Type",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Type": {
+      "main": [
+        [
+          {
+            "node": "ClickUp: Create Task",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "ClickUp: Add Comment",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "ClickUp: Update Task",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "ClickUp: Find SKU Task",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ClickUp: Create Task": {
+      "main": [
+        [
+          {
+            "node": "Step Done",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Rate Limited?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ClickUp: Add Comment": {
+      "main": [
+        [
+          {
+            "node": "Step Done",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Rate Limited?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ClickUp: Update Task": {
+      "main": [
+        [
+          {
+            "node": "Step Done",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Rate Limited?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ClickUp: Find SKU Task": {
+      "main": [
+        [
+          {
+            "node": "Step Done",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Rate Limited?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rate Limited?": {
+      "main": [
+        [
+          {
+            "node": "Wait: ClickUp Rate Limit",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Step Done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait: ClickUp Rate Limit": {
+      "main": [
+        [
+          {
+            "node": "Prepare Step",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Step Done": {
+      "main": [
+        [
+          {
+            "node": "More Steps?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "More Steps?": {
+      "main": [
+        [
+          {
+            "node": "Prepare Step",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Loop: ClickUp Changes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Digest": {
+      "main": [
+        [
+          {
+            "node": "Slack Set?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack Set?": {
+      "main": [
+        [
+          {
+            "node": "Slack: Post Digest",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Any Failures?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack: Post Digest": {
+      "main": [
+        [
+          {
+            "node": "Any Failures?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Stop: Slack Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Any Failures?": {
+      "main": [
+        [
+          {
+            "node": "Stop: ClickUp Changes Failed",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
